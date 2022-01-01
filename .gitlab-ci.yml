@@ -42,7 +42,7 @@ build-and-push-slim-image:
     - docker pull $IMAGE_TAG
     # Note regarding parameters: "--target" is the input, "--tag" is the output
     - >
-      docker-slim build
+      docker-slim --in-container --debug build
       --http-probe-exec 'sh ./slim/http-probe.sh'
       --preserve-path-file ./slim/preserved-paths.txt
       --publish-exposed-ports
