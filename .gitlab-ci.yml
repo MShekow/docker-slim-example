@@ -37,6 +37,7 @@ build-and-push-slim-image:
     - >
       docker run -e DOCKER_HOST=tcp://docker:2375 -v "$PWD/slim:/scripts" dslim/docker-slim build
       --pull
+      --in-container
       --http-probe-exec 'sh /scripts/http-probe.sh'
       --preserve-path-file /scripts/preserved-paths.txt
       --publish-exposed-ports
