@@ -1,12 +1,10 @@
-FROM python:3.10
+FROM python:3.11.9
 
-COPY service /opt/my/service
+WORKDIR /app
 
-WORKDIR /opt/my/service
+COPY service .
 
 RUN pip install -r requirements.txt
 
 EXPOSE 9000
-ENTRYPOINT ["/opt/my/service/run.sh"]
-
-
+CMD ["/app/run.sh"]

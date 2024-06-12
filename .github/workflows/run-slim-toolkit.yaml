@@ -1,0 +1,98 @@
+name: Build slim image and run a smoke test
+
+on:
+  workflow_dispatch: { }
+
+env:
+  REGISTRY: ghcr.io
+  FAT_IMAGE_NAME_BAD_CASE: ghcr.io/${{ github.repository }}/fat  # may contain upper-case letters which are disallowed for Docker tags
+  SLIM_IMAGE_NAME_BAD_CASE: ghcr.io/${{ github.repository }}/slim  # may contain upper-case letters which are disallowed for Docker tags
+
+jobs:
+  build-and-push-slim-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Add lower-case env vars
+        run: |
+          echo "FAT_IMAGE_NAME=${FAT_IMAGE_NAME_BAD_CASE@L}" >> "${GITHUB_ENV}"
+          echo "SLIM_IMAGE_NAME=${SLIM_IMAGE_NAME_BAD_CASE@L}" >> "${GITHUB_ENV}"
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push fat image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.FAT_IMAGE_NAME }}
+
+      - name: install Slim toolkit
+        run: |
+          curl -L -o ds.tar.gz https://github.com/slimtoolkit/slim/releases/download/1.40.11/dist_linux.tar.gz
+          tar -xvf ds.tar.gz
+          mv dist_linux/slim /usr/local/bin/
+          mv dist_linux/slim-sensor /usr/local/bin/
+          rm ds.tar.gz
+          rm -rf dist_linux
+
+      - name: Build slim image
+        run: slim build --target $FAT_IMAGE_NAME --tag $SLIM_IMAGE_NAME
+
+      - name: Push slim image
+        run: docker push $SLIM_IMAGE_NAME
+
+      - name: Upload Slim toolkit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: Slim toolkit report
+          path: slim.report.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Print removed files
+        run: |
+          docker pull $SLIM_IMAGE_NAME
+          pip install -r requirements.txt
+          python print-removed-files.py $FAT_IMAGE_NAME $SLIM_IMAGE_NAME > removed-file-list.txt
+          cat removed-file-list.txt
+
+      - name: Upload removed files list
+        uses: actions/upload-artifact@v4
+        with:
+          name: Removed files
+          path: removed-file-list.txt
+
+  test-slim-image:
+    runs-on: ubuntu-latest
+    needs: build-and-push-slim-image
+    container: alpine/curl:latest
+    services:
+      slim-test-service:
+        # Yup, this is atrocious. Say thank you to the "fine" folks at GitHub who think it's a good idea to limit the
+        # context availability of the "services" block to EXCLUDE the env block (why, oh why?)
+        # See https://docs.github.com/en/actions/learn-github-actions/contexts#context-availability
+        # --> we have to hard-code it here
+        image: ghcr.io/mshekow/docker-slim-example/slim
+    steps:
+      - name: smoke test slim container
+        run: curl --fail http://slim-test-service:9000
